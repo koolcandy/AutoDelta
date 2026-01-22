@@ -14,7 +14,7 @@ class TemplateMatcher:
         self.coords_file = self.template_dir / "coords.json"
         self.coords = {}
         self._load_coords()
-        self.threshold = 0.9
+        self.threshold = 0.8
 
     def _load_coords(self):
         if self.coords_file.exists():

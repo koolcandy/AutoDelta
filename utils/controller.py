@@ -61,9 +61,6 @@ class Controller:
         except Exception:
             return None
 
-    def sleep(self, seconds):
-        time.sleep(seconds)
-
     def _safe_touch(
         self, control: ControlSender, coord: Tuple[int, int], action: int, touch_id: int
     ):

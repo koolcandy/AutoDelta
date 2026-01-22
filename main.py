@@ -34,9 +34,12 @@ class DeltaBot:
             center = self.auto.fetch_template_coords(target)
             if center:
                 self.auto.click(center)
-                if self.auto.fetch_template_coords(target) is None:
-                    # 点击失败，重试
-                    continue
+                # 好像点击的足够快就不会弹出重连弹窗
+                # time.sleep(0.5)  # 等待界面响应
+                # if self.auto.fetch_template_coords(target) is not None:
+                #     logger.info(f"目标仍然存在: [{target}]")
+                #     # 点击失败，重试
+                #     continue
                 logger.info(f"点击成功: [{target}] @ {center}")
                 return True
             else:
@@ -56,7 +59,7 @@ class DeltaBot:
 
         try:
             while time.time() - start_time < timeout:
-                if self.auto.has_template(self.POPUP_TEMPLATE):
+                if self.auto.has_template("重连入局"):
                     logger.info(f"检测到目标 [重连入局]，提前结束长按")
                     break
 
@@ -80,7 +83,7 @@ class DeltaBot:
         self.click_template("确认配装2")
         self.click_template("出发")
         logger.info("正在进入战局...")
-        self.auto.sleep(5)
+        time.sleep(5)
         logger.info("重启应用...")
         self.dev.restart_app()
 
@@ -96,7 +99,7 @@ class DeltaBot:
             self.click_template("确认")
             self.click_template("方案")
             self.click_template("9x39")
-            self.auto.sleep(10)
+            time.sleep(10)
             logger.info("恢复 WiFi")
             self.dev.wifi_on()
         else:
@@ -106,20 +109,20 @@ class DeltaBot:
 
         # 复杂操作
         self.long_press(syfa)
-        self.auto.sleep(2)
+        time.sleep(2)
         logger.info("执行多点触控")
         self.auto.multitouch(qrfa, cancel)
-        self.auto.sleep(2)
+        time.sleep(2)
         self.click_template("放弃对局")
         self.click_template("邮件")
         self.click_template("部分领取")
-        self.auto.sleep(1)
+        time.sleep(1)
         self.click_template("胸挂")
         self.click_template("背包")
         self.click_template("领取")
-        self.auto.sleep(2)
+        time.sleep(2)
         self.click_template("跳过")
-        self.auto.sleep(2)
+        time.sleep(2)
         self.click_template("返回")
 
 
