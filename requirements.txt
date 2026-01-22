@@ -1,0 +1,5 @@
+# 项目依赖列表
+adbutils
+opencv-python
+numpy
+av
