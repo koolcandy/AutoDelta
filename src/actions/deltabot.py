@@ -17,6 +17,9 @@ class DeltaBot(BaseAction):
         
         # 从 coords.json 获取静态坐标
         self.syfa = self.controller.get_template_center("使用方案")
+        if self.syfa is None:
+            logger.error("无法获取模板 '使用方案' 的中心坐标，请检查模板配置或 coords.json。")
+            raise RuntimeError("模板 '使用方案' 的坐标未配置，无法继续执行 DeltaBot 流程")
 
     def run_phase_one(self):
         """第一阶段：初始设置和进入战斗"""

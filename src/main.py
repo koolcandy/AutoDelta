@@ -1,7 +1,6 @@
 """
 主程序入口
 """
-import time
 from .core.device import DeviceController
 from .core.controller import ScreenController
 from .actions.deltabot import DeltaBot

@@ -2,7 +2,7 @@
 基础动作类，提供通用的游戏操作方法
 """
 import time
-from typing import Optional, Tuple
+from typing import Optional
 from ..core.controller import ScreenController
 from ..utils.logger import logger
 
