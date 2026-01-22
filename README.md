@@ -49,7 +49,7 @@
 ### 依赖项
 
 ```bash
-pip install adbutils opencv-python numpy av
+pip install adbutils opencv-python numpy av scrcpy
 ```
 
 ### 运行
