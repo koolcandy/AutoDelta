@@ -41,6 +41,13 @@ class Controller:
     def has_template(self, template_name: str) -> bool:
         return self.fetch_template_coords(template_name) is not None
 
+    def get_template_center(self, template_name: str) -> Optional[Tuple[int, int]]:
+        """从 coords.json 获取模板的静态中心坐标"""
+        if template_name in self.ocr_engine.coords:
+            x1, y1, x2, y2 = self.ocr_engine.coords[template_name]
+            return (x1 + x2) // 2, (y1 + y2) // 2
+        return None
+
     def fetch_template_coords(
         self,
         template_name: str,

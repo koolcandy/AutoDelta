@@ -14,6 +14,8 @@ class DeltaBot:
         self.LONG_PRESS_TIMEOUT = 30
         self.DEFAULT_LOOP_INTERVAL = 0.05
         self.POPUP_TEMPLATE = "确认重连"
+        # 从 coords.json 获取静态坐标
+        self.syfa = self.auto.get_template_center("使用方案")
 
     def _resolve_popup_if_present(self) -> bool:
         center = self.auto.fetch_template_coords(self.POPUP_TEMPLATE)
@@ -25,12 +27,17 @@ class DeltaBot:
             return True
         return False
 
-    def click_template(self, target: str, timeout: Optional[float] = None) -> bool:
+    def click_template(self, target: str, timeout: Optional[float] = None, check_ad = False) -> bool:
         timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
         start_time = time.time()
         logger.info(f"寻找目标: [{target}]")
 
         while time.time() - start_time < timeout:
+            ad_center = self.auto.fetch_template_coords("广告") if check_ad else None
+            if ad_center is not None:
+                self.auto.click(ad_center)
+                logger.info(f"点击成功: [广告] @ {ad_center}")
+                continue
             center = self.auto.fetch_template_coords(target)
             if center:
                 self.auto.click(center)
@@ -87,13 +94,11 @@ class DeltaBot:
         logger.info("重启应用...")
         self.dev.restart_app()
 
-        # 等待关键节点
         if self.click_template("重连入局", timeout=60):
             logger.info("关闭 WiFi")
             self.dev.wifi_off()
             self.click_template("开始游戏")
-            # self.click_template("广告")
-            self.click_template("行前备战")
+            self.click_template("行前备战", check_ad=True)
             self.click_template("零号大坝")
             self.click_template("开始行动")
             self.click_template("确认")
@@ -108,13 +113,13 @@ class DeltaBot:
         logger.info("=== 阶段三：结算与领取 ===")
 
         # 复杂操作
-        self.long_press(syfa)
+        self.long_press(self.syfa)
         time.sleep(2)
         logger.info("执行多点触控")
         self.auto.multitouch(qrfa, cancel)
         time.sleep(2)
         self.click_template("放弃对局")
-        self.click_template("邮件")
+        self.click_template("邮件", check_ad=True)
         self.click_template("部分领取")
         time.sleep(1)
         self.click_template("胸挂")
@@ -135,7 +140,7 @@ def main():
     bot = DeltaBot(dev, auto)
 
     try:
-        for _ in range(3):
+        # for _ in range(5):
             bot.run()
     except KeyboardInterrupt:
         logger.info("用户手动停止")
@@ -143,11 +148,6 @@ def main():
         logger.error(f"发生异常: {e}")
     finally:
         logger.info("正在清理资源...")
-        # 安全保障：确保长按被释放
-        try:
-            bot.auto.click_up(syfa)
-        except:
-            pass
         dev.stop()
 
 
