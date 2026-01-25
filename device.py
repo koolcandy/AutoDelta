@@ -143,7 +143,6 @@ class Device:
         self.client.add_listener(scrcpy.EVENT_FRAME, self._on_frame)
         self.package_name = "com.tencent.tmgp.dfm"
         
-        # 模板匹配和触摸控制
         self.matcher = Matcher()
         self._scrcpy_lock = threading.Lock()
 
@@ -283,6 +282,25 @@ class Device:
     def click_up(self, coord: Tuple[int, int]) -> bool:
         """抬起指定坐标（长按结束）"""
         return self._touch_at(self.get_control(), coord, action=1)
+
+    def has_template(self, template_name: str) -> bool:
+        """检查是否存在指定模板"""
+        return self.fetch_template_coords(template_name) is not None
+
+    def get_template_center(self, template_name: str) -> Optional[Tuple[int, int]]:
+        """
+        从 coords.json 获取模板的静态中心坐标
+        
+        Args:
+            template_name: 模板名称
+            
+        Returns:
+            坐标元组 (x, y)，未找到返回 None
+        """
+        if template_name in self.matcher.coords:
+            x1, y1, x2, y2 = self.matcher.coords[template_name]
+            return (x1 + x2) // 2, (y1 + y2) // 2
+        return None
 
     def fetch_template_coords(
         self,

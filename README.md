@@ -37,15 +37,6 @@ python template_picker.py
 - 输入模板名称保存
 - 按 `Q` 键退出
 
-## ⚙️ 配置
-
-在 [config.py](config.py) 中修改：
-
-- `RUN_ROUNDS`: 运行轮次
-- `PACKAGE_NAME`: 应用包名
-- `QRFA_COORD`, `CANCEL_COORD`: 游戏坐标
-- 其他超时和阈值设置
-
 ## 📝 核心类
 
 ### `Bot` (bot.py)
@@ -63,6 +54,5 @@ python template_picker.py
 
 ## 🔧 依赖
 
-- scrcpy-py
 - opencv-python
 - numpy

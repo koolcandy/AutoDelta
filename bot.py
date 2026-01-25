@@ -6,13 +6,14 @@
 import time
 import config
 from typing import Optional
+from device import Device
 from logger import logger
 
 
 class Bot:
     """游戏自动化机器人，封装所有游戏操作逻辑"""
 
-    def __init__(self, device):
+    def __init__(self, device: Device):
         """
         初始化机器人
         
@@ -177,3 +178,28 @@ class Bot:
         self.click_template("跳过")
         time.sleep(2)
         self.click_template("返回")
+
+def main():
+    """主函数"""
+    logger.info("AutoDelta 启动中...")
+
+    device = Device()
+    device.start()
+
+    bot = Bot(device)
+
+    run_rounds = 5
+
+    try:
+        for round_num in range(1, run_rounds + 1):
+            logger.info(f"开始第 {round_num}/{run_rounds} 轮")
+            bot.run()
+    except KeyboardInterrupt:
+        logger.info("用户手动停止")
+    finally:
+        logger.info("正在清理资源...")
+        device.stop()
+
+
+if __name__ == "__main__":
+    main()
