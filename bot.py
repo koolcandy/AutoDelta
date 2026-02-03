@@ -4,8 +4,8 @@
 """
 
 import time
-from device import Device
-from logger import logger
+from utils.device import Device
+from utils.logger import logger
 from modules.actions import ActionHandler
 from modules.market import MarketHandler
 

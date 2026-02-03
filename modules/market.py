@@ -2,7 +2,7 @@ import time
 import cv2
 import re
 import ddddocr
-from logger import logger
+from utils.logger import logger
 
 
 class MarketHandler:

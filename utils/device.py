@@ -13,7 +13,7 @@ import scrcpy
 from pathlib import Path
 from typing import Tuple, Optional, Dict
 from scrcpy.control import ControlSender
-from logger import logger
+from utils.logger import logger
 
 
 class Matcher:

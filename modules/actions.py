@@ -1,7 +1,7 @@
 import time
 from typing import Optional
-import config
-from logger import logger
+import utils.config as config
+from utils.logger import logger
 
 
 class ActionHandler:

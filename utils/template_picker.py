@@ -7,7 +7,7 @@ import cv2
 import os
 import time
 import json
-from device import Device
+from utils.device import Device
 
 
 class TemplatePicker:
