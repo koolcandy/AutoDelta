@@ -48,11 +48,11 @@ class Matcher:
     def find_template(self, frame: np.ndarray, target: str) -> Optional[Dict]:
         """
         在帧中查找指定模板
-        
+
         Args:
             frame: 屏幕帧图像
             target: 目标模板名称
-            
+
         Returns:
             匹配结果字典，包含 text、center、score 等信息，未找到返回 None
         """
@@ -131,7 +131,7 @@ class Device:
     def __init__(self, device_id=None, block_frame=True):
         """
         初始化设备控制器
-        
+
         Args:
             device_id: 设备ID，None 表示自动选择
             block_frame: 是否阻塞等待帧更新
@@ -142,7 +142,7 @@ class Device:
         self.client = scrcpy.Client(device=device_id, block_frame=block_frame)
         self.client.add_listener(scrcpy.EVENT_FRAME, self._on_frame)
         self.package_name = "com.tencent.tmgp.dfm"
-        
+
         self.matcher = Matcher()
         self._scrcpy_lock = threading.Lock()
 
@@ -164,10 +164,10 @@ class Device:
     def get_frame(self, timeout=1.0):
         """
         获取最新屏幕帧
-        
+
         Args:
             timeout: 超时时间（秒）
-            
+
         Returns:
             numpy 图像数组，或 None
         """
@@ -192,10 +192,10 @@ class Device:
     def _execute_adb_command(self, cmd_list: list) -> bool:
         """
         执行 ADB 命令
-        
+
         Args:
             cmd_list: 命令参数列表
-            
+
         Returns:
             命令是否执行成功
         """
@@ -225,7 +225,7 @@ class Device:
     def toggle_wifi(self, enable: bool):
         """
         开关 WiFi
-        
+
         Args:
             enable: True 为开启，False 为关闭
         """
@@ -250,12 +250,12 @@ class Device:
     ) -> bool:
         """
         在指定坐标执行触摸操作
-        
+
         Args:
             control: 控制发送器
             coord: 坐标 (x, y)
             action: 触摸动作类型，None 表示点击（按下+抬起）
-            
+
         Returns:
             操作是否成功
         """
@@ -285,33 +285,33 @@ class Device:
 
     def has_template(self, template_name: str) -> bool:
         """检查是否存在指定模板"""
-        return self.fetch_template_coords(template_name) is not None
+        return self.fetch_coords(template_name) is not None
 
-    def get_template_center(self, template_name: str) -> Optional[Tuple[int, int]]:
+    def fetch_center(self, template_name: str) -> Tuple[int, int]:
         """
         从 coords.json 获取模板的静态中心坐标
-        
+
         Args:
             template_name: 模板名称
-            
+
         Returns:
-            坐标元组 (x, y)，未找到返回 None
+            坐标元组 (x, y)
         """
         if template_name in self.matcher.coords:
             x1, y1, x2, y2 = self.matcher.coords[template_name]
             return (x1 + x2) // 2, (y1 + y2) // 2
-        return None
+        return (0, 0)
 
-    def fetch_template_coords(
+    def fetch_coords(
         self,
         template_name: str,
     ) -> Optional[Tuple[int, int]]:
         """
         获取模板在屏幕上的实际坐标
-        
+
         Args:
             template_name: 模板名称
-            
+
         Returns:
             坐标元组 (x, y)，未找到返回 None
         """
@@ -337,74 +337,3 @@ class Device:
         """线程安全的触摸操作"""
         with self._scrcpy_lock:
             control.touch(coord[0], coord[1], action, touch_id=touch_id)
-
-    def _spam_tap(
-        self,
-        control: ControlSender,
-        coord: Tuple[int, int],
-        touch_id: int,
-        duration: float,
-    ) -> int:
-        """快速连续点击"""
-        start = time.time()
-        count = 0
-        while time.time() - start < duration:
-            self._safe_touch(control, coord, scrcpy.const.ACTION_DOWN, touch_id)
-            time.sleep(0.05)
-            self._safe_touch(control, coord, scrcpy.const.ACTION_UP, touch_id)
-            count += 1
-        return count
-
-    def _single_tap(
-        self, control: ControlSender, coord: Tuple[int, int], touch_id: int
-    ):
-        """单次点击"""
-        self._safe_touch(control, coord, scrcpy.const.ACTION_DOWN, touch_id)
-        time.sleep(0.05)
-        self._safe_touch(control, coord, scrcpy.const.ACTION_UP, touch_id)
-
-    def multitouch(
-        self,
-        main_coord: Tuple[int, int],
-        sub_coord: Tuple[int, int],
-        duration: float = 1.0,
-        sub_delay: float = 0.5,
-    ) -> bool:
-        """
-        多点触控操作
-        
-        Args:
-            main_coord: 主触点坐标，会连续点击
-            sub_coord: 副触点坐标，延迟后单次点击
-            duration: 主触点持续时间（秒）
-            sub_delay: 副触点延迟时间（秒）
-            
-        Returns:
-            操作是否成功
-        """
-        try:
-            ctrl = self.get_control()
-
-            id_main = 1
-            id_sub = 2
-
-            def thread_main():
-                self._spam_tap(ctrl, main_coord, touch_id=id_main, duration=duration)
-
-            def thread_sub():
-                time.sleep(sub_delay)
-                self._single_tap(ctrl, sub_coord, touch_id=id_sub)
-
-            t1 = threading.Thread(target=thread_main)
-            t2 = threading.Thread(target=thread_sub)
-
-            t1.start()
-            t2.start()
-
-            t1.join()
-            t2.join()
-
-            return True
-
-        except Exception:
-            return False

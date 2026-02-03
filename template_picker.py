@@ -12,11 +12,11 @@ from device import Device
 
 class TemplatePicker:
     """模板选择器，用于框选和保存屏幕区域作为识别模板"""
-    
+
     def __init__(self, display_width=1920):
         """
         初始化模板选择器
-        
+
         Args:
             display_width: 预览窗口的最大宽度
         """

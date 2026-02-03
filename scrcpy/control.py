@@ -76,6 +76,9 @@ class ControlSender:
             touch_id: Default using virtual id -1, you can specify it to emulate multi finger touch
         """
         x, y = max(x, 0), max(y, 0)
+
+        pressure = 0 if action == const.ACTION_UP else 0xFFFF
+
         return struct.pack(
             ">BqiiHHHii",
             action,
@@ -84,9 +87,9 @@ class ControlSender:
             int(y),
             int(self.parent.resolution[0]),
             int(self.parent.resolution[1]),
-            0xFFFF,
-            1,
-            1,
+            pressure,
+            0,
+            0,
         )
 
     @inject(const.TYPE_INJECT_SCROLL_EVENT)
