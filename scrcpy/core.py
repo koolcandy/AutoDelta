@@ -15,7 +15,6 @@ from .const import (
     EVENT_DISCONNECT,
     EVENT_FRAME,
     EVENT_INIT,
-    LOCK_SCREEN_ORIENTATION_UNLOCKED,
 )
 from .control import ControlSender
 
@@ -30,7 +29,6 @@ class Client:
         flip: bool = False,
         block_frame: bool = False,
         stay_awake: bool = False,
-        lock_screen_orientation: int = LOCK_SCREEN_ORIENTATION_UNLOCKED,
         connection_timeout: int = 3000,
         encoder_name: Optional[str] = None,
         codec_name: Optional[str] = None,
@@ -57,9 +55,6 @@ class Client:
         assert max_width >= 0, "max_width must be greater than or equal to 0"
         assert bitrate >= 0, "bitrate must be greater than or equal to 0"
         assert max_fps >= 0, "max_fps must be greater than or equal to 0"
-        assert (
-            -1 <= lock_screen_orientation <= 3
-        ), "lock_screen_orientation must be LOCK_SCREEN_ORIENTATION_*"
         assert (
             connection_timeout >= 0
         ), "connection_timeout must be greater than or equal to 0"
@@ -104,7 +99,6 @@ class Client:
         self.max_fps = max_fps
         self.block_frame = block_frame
         self.stay_awake = stay_awake
-        self.lock_screen_orientation = lock_screen_orientation
         self.connection_timeout = connection_timeout
         self.encoder_name = encoder_name
         self.codec_name = codec_name
@@ -224,9 +218,6 @@ class Client:
         self.alive = True
         self.__send_to_listeners(EVENT_INIT)
 
-        if self.start_app:
-            self.control.start_app(self.start_app)
-
         if threaded or daemon_threaded:
             self.stream_loop_thread = threading.Thread(
                 target=self.__stream_loop, daemon=daemon_threaded
@@ -263,12 +254,16 @@ class Client:
         Core loop for video parsing
         """
         codec = CodecContext.create("h264", "r")
+        reconnect_attempts = 0
+        max_reconnect_attempts = 5
+        
         while self.alive:
             try:
                 assert self.__video_socket is not None
                 raw_h264 = self.__video_socket.recv(0x10000)
                 if raw_h264 == b"":
                     raise ConnectionError("Video stream is disconnected")
+                reconnect_attempts = 0  # Reset attempts on successful receive
                 packets = codec.parse(raw_h264)
                 for packet in packets:
                     frames = codec.decode(packet)
@@ -286,9 +281,29 @@ class Client:
                     self.__send_to_listeners(EVENT_FRAME, None)
             except (ConnectionError, OSError) as e:  # Socket Closed
                 if self.alive:
-                    self.__send_to_listeners(EVENT_DISCONNECT)
-                    self.stop()
-                    raise e
+                    reconnect_attempts += 1
+                    if reconnect_attempts <= max_reconnect_attempts:
+                        self.__send_to_listeners(EVENT_DISCONNECT)
+                        time.sleep(1)  # Wait before reconnecting
+                        try:
+                            # Close old connections
+                            if self.__video_socket is not None:
+                                try:
+                                    self.__video_socket.close()
+                                except Exception:
+                                    pass
+                            # Attempt to reconnect
+                            self.__init_server_connection()
+                            reconnect_attempts = 0  # Reset counter on successful reconnect
+                        except Exception:
+                            if reconnect_attempts >= max_reconnect_attempts:
+                                self.__send_to_listeners(EVENT_DISCONNECT)
+                                self.stop()
+                                raise e
+                    else:
+                        self.__send_to_listeners(EVENT_DISCONNECT)
+                        self.stop()
+                        raise e
 
     def add_listener(self, cls: str, listener: Callable[..., Any]) -> None:
         """
