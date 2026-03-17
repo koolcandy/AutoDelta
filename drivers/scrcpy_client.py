@@ -121,8 +121,6 @@ class ScrcpyClient:
             raise ConnectionError("未收到 Dummy Byte")
 
         self.control_socket = self.device.create_connection(Network.LOCAL_ABSTRACT, "scrcpy")
-        self.device_name = self.__video_socket.recv(64).decode("utf-8").rstrip("\x00")
-        
         res = self.__video_socket.recv(4)
         self.resolution = struct.unpack(">HH", res)
         self.__video_socket.setblocking(False)
@@ -147,26 +145,6 @@ class ScrcpyClient:
                     pass
         with self._frame_condition:
             self._frame_condition.notify_all()
-
-    def get_latest_frame(self, last_seen_index: Optional[int] = None, timeout: float = 1.0) -> Tuple[Optional[np.ndarray], int]:
-        """
-        获取当前最新帧。
-        传入 last_seen_index 可阻塞等待直到出现比它更新的帧。
-        返回: (BGR numpy 数组, 当前帧序号)
-        """
-        deadline = time.monotonic() + timeout
-        with self._frame_condition:
-            while self.alive:
-                has_new_frame = (last_seen_index is None or self.frame_index > last_seen_index)
-                if self.latest_frame is not None and has_new_frame:
-                    return self.latest_frame, self.frame_index
-
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                self._frame_condition.wait(remaining)
-
-            return self.latest_frame, self.frame_index
 
     def __stream_loop(self):
         codec = CodecContext.create("h264", "r")

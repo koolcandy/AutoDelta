@@ -58,27 +58,6 @@ class TemplatePicker:
             return ""
         return re.sub(r"\s+", "", text).lower()
 
-    @staticmethod
-    def _sanitize_terminal_input(value):
-        """兼容部分终端将回车编码为 CSI-u 序列（如 ^[[13u）"""
-        if value is None:
-            return ""
-
-        cleaned = value
-        # 1) 去掉实际 ANSI/CSI 控制序列（覆盖 CSI-u 如 \x1b[13u / \x1b[13;1u）
-        cleaned = re.sub(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", "", cleaned)
-        # 2) 去掉字面量形式 \x1b[13u（部分终端/日志会把 ESC 展示为文本）
-        cleaned = re.sub(r"\\x1b\[[0-9;:]*[A-Za-z~]", "", cleaned, flags=re.IGNORECASE)
-        # 3) 去掉 caret 可见形式 ^[[13u / ^[[13;1u
-        cleaned = re.sub(r"\^\[\[[0-9;:]*[A-Za-z~]", "", cleaned)
-        # 3.1) 去掉无 ESC 的残片形式，如 [[13u / [13u / ^[[13u 的变体
-        cleaned = re.sub(r"(?:\^\[\[|\[\[|\[)[0-9;:]*[A-Za-z~]", "", cleaned)
-        # 4) 兜底：若控制序列仍以尾巴形式存在，截掉尾巴
-        cleaned = re.sub(r"(?:\x1b\[[0-9;:]*[A-Za-z~]|\^\[\[[0-9;:]*[A-Za-z~])+$", "", cleaned)
-        # 5) 清理可能残留的裸 ^[ 和多余空白
-        cleaned = cleaned.replace("^[", "")
-        return cleaned.strip()
-
     def _read_input(self, prompt):
         """使用 macOS 原生弹窗获取输入，完美避开终端和 Tkinter 冲突"""
         # 清理 prompt 中可能导致 AppleScript 语法错误的引号
