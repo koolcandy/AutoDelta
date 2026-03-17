@@ -6,6 +6,7 @@ from typing import Tuple, Optional
 from utils.logger import logger
 from core.agent import Agent
 
+
 class MarketHandler:
     def __init__(self, operator: Agent):
         self.operator = operator
@@ -13,11 +14,6 @@ class MarketHandler:
         self.total_purchase_count = 0
         self.current_money = 0
         self.target_coord = None
-
-    def open_market(self):
-        """打开交易行界面"""
-        self.operator.wait_and_click_target("交易行")
-        time.sleep(0.5)
 
     def get_shelves_slot_count(self) -> Optional[int]:
         clean_res = self.operator.read_text("shelves")
@@ -60,7 +56,7 @@ class MarketHandler:
 
     def get_unit_price(self, count):
         logger.info(f"尝试购买 {count} 个...")
-        
+
         if count == 31:
             buy_btn = config.buy_31
         elif count == 200:
@@ -68,10 +64,10 @@ class MarketHandler:
         else:
             logger.error(f"不支持的购买数量: {count}")
             return 0
-        
+
         if self.current_money == 0:
             self.current_money = self.get_current_money()
-        
+
         for _ in range(3):
             self.operator.click(buy_btn)
             time.sleep(0.2)
@@ -86,9 +82,11 @@ class MarketHandler:
 
             if actual_unit_price != 0:
                 self.total_purchased += count
-                logger.info(f"购买数量: {self.total_purchased} / {self.total_purchase_count}")
+                logger.info(
+                    f"购买数量: {self.total_purchased} / {self.total_purchase_count}"
+                )
                 return actual_unit_price
-            
+
         return 0
 
     def buy(
@@ -108,19 +106,20 @@ class MarketHandler:
 
         self.total_purchased += self.get_inventory(item_name)
 
-        self.open_market()
-        time.sleep(0.5)
+        self.operator.wait_and_click_target("交易行")
 
         while self.total_purchased < self.total_purchase_count:
-            # self.operator.wait_and_click_target(item_name)
+            self.operator.wait_for("交易行页面")
             if self.target_coord is None:
-                if coord := self.operator.locate(item_name, ocr=True, template_type="marketplace"):
+                if coord := self.operator.locate(
+                    item_name, ocr=True, template_type="marketplace"
+                ):
                     self.target_coord = coord
                     self.operator.click(self.target_coord)
             else:
                 self.operator.click(self.target_coord)
-            time.sleep(0.5)
-  
+
+            self.operator.wait_for("待售列表")
             preview_price = self.get_current_price()
 
             if preview_price > max_acceptable_price or preview_price == 0:
@@ -128,7 +127,7 @@ class MarketHandler:
                     f"预检价格 {preview_price} 高于可接受价格 {max_acceptable_price}，返回刷新"
                 )
                 self.operator.wait_and_click_target("返回")
-                time.sleep(0.2)
+                self.operator.wait_for("交易行页面")
                 continue
 
             price_31 = self.get_unit_price(31)
@@ -155,7 +154,7 @@ class MarketHandler:
                 )
 
             self.operator.wait_and_click_target("返回")
-            time.sleep(0.2)
+            self.operator.wait_for("交易行页面")
 
         self.operator.wait_and_click_target("返回")
 
@@ -166,12 +165,16 @@ class MarketHandler:
         self.operator.click((2460, y))
         time.sleep(0.5)
 
-        if coord := self.operator.locate(item_name, ocr=True, template_type="warehouse"):
+        if coord := self.operator.locate(
+            item_name, ocr=True, template_type="warehouse"
+        ):
             return coord
 
         self.operator.swipe((1900, 800), (1900, 600))
 
-        if coord := self.operator.locate(item_name, ocr=True, template_type="warehouse"):
+        if coord := self.operator.locate(
+            item_name, ocr=True, template_type="warehouse"
+        ):
             return coord
 
         return None
@@ -191,12 +194,12 @@ class MarketHandler:
         return None
 
     def get_inventory(self, item_name) -> int:
-        self.open_market()
+        self.operator.wait_and_click_target("交易行")
         total_val = 0
         self.operator.wait_and_click_target("出售")
         if coord := self.search_warehouse(item_name):
             self.operator.click(coord)
-            time.sleep(2)
+            self.operator.wait_for("上架2")
 
             if res := self.get_inventory_count():
                 _, total_val = res
@@ -207,17 +210,17 @@ class MarketHandler:
         time.sleep(0.2)
         self.operator.wait_and_click_target("返回")
         return total_val
-   
+
     def sell_all(self, item_name: str = "9x19 rip"):
         """出售所有物品"""
-        self.open_market()
+        self.operator.wait_and_click_target("交易行")
 
         self.operator.wait_and_click_target("出售")
         time.sleep(0.2)
 
         if coord := self.search_warehouse(item_name):
             self.operator.click(coord)
-            time.sleep(2)
+            self.operator.wait_for("上架2")
             x1, x2, y = config.slider_end
 
             if res := self.get_inventory_count():
@@ -250,4 +253,3 @@ class MarketHandler:
             self.operator.wait_and_click_target("上架2")
 
         self.operator.wait_and_click_target("返回")
-

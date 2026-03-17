@@ -93,6 +93,20 @@ class Agent:
 
         return False
 
+    def wait_for(self, target: str, timeout: float = 10.0):
+        start_time = time.time()
+        deadline = start_time + float(timeout)
+        logger.info(f"等待目标: [{target}]，超时时间: {timeout}s")
+
+        while time.time() < deadline:
+            if self.if_visible(target):
+                logger.info(f"成功找到目标: [{target}]")
+                return
+            time.sleep(config.LOOP_INTERVAL)
+
+        logger.warning(f"超时未找到目标: [{target}]")
+        raise GameRebootException(f"超时未找到目标: {target}")
+    
     def wait_and_click_target(
         self,
         target: str,
