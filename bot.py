@@ -1,123 +1,175 @@
-"""
-游戏自动化机器人模块
-整合了基础操作和游戏流程逻辑
-"""
-
 import time
 import subprocess
-from utils.device import Device
+from dataclasses import dataclass
 from utils.logger import logger
-from utils.ocr import OcrUtils
-from modules.actions import ActionHandler, GameRebootException
+from core.agent import Agent
+from modules.expection import GameRebootException
+from modules.recovery import GameRecoveryHandler
 from modules.market import MarketHandler
+from modules.mail import MailHandler
+from modules.glitch import GlitchHandler
+from modules.map import MapHandler
+from modules.lobby import LobbyHandler
+from modules.state import GameState
+from modules.prepare import PrepareHandler
+from modules.reconnect import ReconnectHandler
+
+
+@dataclass
+class _BotServices:
+    operator: Agent
+    market: MarketHandler
+    mail: MailHandler
+    glitch: GlitchHandler
+    map: MapHandler
+    lobby: LobbyHandler
+    prepare: PrepareHandler
+    reconnect: ReconnectHandler
+
+def _build_services() -> _BotServices:
+    operator = Agent()
+
+    return _BotServices(
+        operator=operator,
+        market=MarketHandler(operator),
+        mail=MailHandler(operator),
+        glitch=GlitchHandler(operator),
+        map=MapHandler(operator),
+        lobby=LobbyHandler(operator),
+        prepare=PrepareHandler(operator),
+        reconnect=ReconnectHandler(operator),
+    )
 
 
 class Bot:
     """游戏自动化机器人，封装所有游戏操作逻辑"""
 
-    def __init__(self, device: Device):
+    def __init__(self):
         """
         初始化机器人
-
-        Args:
-            device: Device 设备控制器实例
         """
-        self.device = device
-        self.actions = ActionHandler(self.device)
-        self.ocr_utils = OcrUtils(self.device, self.actions)
-        self.market = MarketHandler(self.device, self.actions, self.ocr_utils)
-        self.syfa = self.device.fetch_center("使用方案")
+        self.services = _build_services()
+        self.operator = self.services.operator
+        self.market = self.services.market
+        self.mail = self.services.mail
+        self.glitch = self.services.glitch
+        self.map = self.services.map
+        self.lobby = self.services.lobby
+        self.prepare = self.services.prepare
+        self.reconnect = self.services.reconnect
 
-    def run(self, target):
-        # 调用 market 购买，传入商品名、目标价格、最大可接受价格、总数量
-        self.market.buy_items(
-            item_name="12 buy",
-            target_price=288,
-            max_acceptable_price=323,
-            total_purchase_count=2000,
+    def detect_state(self) -> GameState:
+        """根据屏幕特征判断当前处于哪个阶段"""
+        self.operator.popup_handler()
+
+        frame = self.operator.get_frame()
+        if frame is None:
+            return GameState.UNKNOWN
+
+        if self.operator.locate("重连入局", frame=frame):
+            logger.info("检测到重连提示")
+            return GameState.RECONNECT
+
+        if self.operator.locate("战略板", frame=frame):
+            logger.info("检测到选图界面")
+            return GameState.MAP_SELECT
+
+        if self.operator.locate("装备配置", frame=frame):
+            logger.info("检测到配装界面")
+            return GameState.PREPARE
+        
+        if self.operator.locate("推荐配装", frame=frame):
+            logger.info("检测到准备界面 ")
+            return GameState.GLITCH
+            
+        if self.operator.locate("行前备战", frame=frame):
+            return GameState.LOBBY
+        
+        if self.operator.locate("出发", frame=frame):
+            return GameState.LOBBY_GO
+
+        return GameState.UNKNOWN
+
+    def run(
+        self,
+        target,
+        item_name,
+        target_price,
+        max_acceptable_price,
+        total_purchase_count,
+    ):
+        self.market.buy(
+            item_name,
+            target_price,
+            max_acceptable_price,
+            total_purchase_count,
         )
-        self.actions.click_template("行前备战")
-        time.sleep(1)
-        while True:
-            if self.device.fetch_coords("零号大坝"):
-                self.actions.click_template("零号大坝")
-                self.actions.click_template("开始行动")
-                break
-            if self.device.fetch_coords("开始行动"):
-                self.actions.click_template("开始行动")
-                break
-            time.sleep(0.1)
-        self.actions.click_template("确认配装")
-        time.sleep(1)
-        self.actions.click_template("确认配装2")
-        self.actions.click_template("出发")
-        logger.info("正在进入战局...")
-        time.sleep(10)
 
-        logger.info("重启应用...")
-        self.device.restart_app()
+        self.round_finished = False
+        self.glitch_state = False
+        self.handle_mail = False
+        unknown_timer = 0
 
-        while self.device.fetch_coords("重连入局") is None:
-            time.sleep(0.1)
+        # 2. 启动状态机引擎
+        while not self.round_finished:
+            current_state = self.detect_state()
 
-        self.device.wifi_off()
-        logger.info("关闭 WiFi")
+            if current_state != GameState.UNKNOWN:
+                unknown_timer = 0
 
-        self.actions.click_template("重连入局")
-        self.actions.click_template("开始游戏")
-        self.actions.click_template("行前备战", check_ad=True)
+            if current_state == GameState.LOBBY:
+                if self.handle_mail:
+                    self.round_finished = self.mail.handle_mail()
+                    self.handle_mail = False
+                else:
+                    self.lobby.handle_lobby_prepare()
 
-        self.actions.click_step("零号大坝", "开始行动")
+            elif current_state == GameState.MAP_SELECT:
+                self.map.handle_map()
 
-        self.actions.click_step("开始行动", "确认")
+            elif current_state == GameState.LOBBY_GO:
+                self.lobby.handle_lobby_go()
+                self.glitch_state = True
 
-        self.actions.click_step("确认", "方案")
+            elif current_state == GameState.GLITCH:
+                self.glitch.handle_glitch(target)
+                self.glitch_state = False
+                self.handle_mail = True
+            
+            elif current_state == GameState.RECONNECT:
+                self.reconnect.handle_reconnect()
 
-        self.actions.click_step("方案", target)
-        time.sleep(1)
+            elif current_state == GameState.PREPARE:
+                self.prepare.handle_prepare(self.glitch_state)
 
-        self.actions.click_template(target)
-        time.sleep(0.5)
-        self.actions.click_template(target)
-        time.sleep(0.5)
-        self.actions.click_template(target)
+            elif current_state == GameState.UNKNOWN:
+                unknown_timer += 1
+                if unknown_timer > 100:
+                    raise GameRebootException("状态机彻底迷失，触发全局恢复")
 
-        time.sleep(10)
-        logger.info("恢复 WiFi")
-        self.device.wifi_on()
-
-        self.actions.long_press(self.syfa)
-        time.sleep(5)
-        self.actions.click_template("取消重连")
-        self.actions.click_template("放弃对局")
-        self.actions.click_step("通行证", "邮件")
-        time.sleep(1)
-        self.actions.click_template("邮件", check_ad=True)
-        self.actions.click_template("部分领取")
-        time.sleep(1)
-        self.actions.click_template("胸挂")
-        self.actions.click_template("背包")
-        self.actions.click_template("领取")
-        time.sleep(2)
-        self.actions.click_template("跳过")
-        time.sleep(1)
-        self.actions.click_template("返回")
+            time.sleep(1)
 
     def test(self):
-        self.market.open_market()
-        self.market.sell_all()
+        """测试函数"""
+        logger.info("正在测试状态检测...")
+        self.operator.popup_handler()
+
+    def sell(self):
+        for _ in range(15):
+            self.mail.recept_mail()
+            self.market.sell_all()
+            time.sleep(5)
 
 
 def main():
     """主函数"""
     logger.info("AutoDelta 启动中...")
-    
+
     caffeinate_process = subprocess.Popen(["caffeinate", "-i"])
 
-    device = Device()
-    device.start()
+    bot = Bot()
 
-    bot = Bot(device)
+    bot.operator.start()
 
     run_rounds = 80
 
@@ -125,17 +177,42 @@ def main():
         for round_num in range(1, run_rounds + 1):
             logger.info(f"开始第 {round_num}/{run_rounds} 轮")
             try:
-                bot.run("12")
-            except GameRebootException:
+                bot.run(
+                    target="sheme2",
+                    item_name="箭形弹",
+                    target_price=388,
+                    max_acceptable_price=441,
+                    total_purchase_count=2000,
+                )
+                # bot.run(
+                #     target="sheme3",
+                #     item_name="12 buy",
+                #     inventory_item_name="12 Gauge",
+                #     target_price=288,
+                #     max_acceptable_price=333,
+                #     total_purchase_count=1600,
+                # )
+                # bot.run(
+                #     target="sheme1",
+                #     item_name="919",
+                #     inventory_item_name="9x19 rip",
+                #     target_price=638,
+                #     max_acceptable_price=642,
+                #     total_purchase_count=5000,
+                # )
+            except GameRebootException as e:
+                logger.info(f"捕获异常，执行恢复: {e}")
+                recovery = GameRecoveryHandler(bot.operator)
+                recovery.recover_from_failure()
                 continue
-        # bot.test()
+        # bot.sell()
     except KeyboardInterrupt:
         logger.info("用户手动停止")
     finally:
         logger.info("正在清理资源...")
         caffeinate_process.terminate()
         caffeinate_process.wait()
-        device.stop()
+        bot.operator.stop()
 
 
 if __name__ == "__main__":

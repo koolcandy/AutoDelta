@@ -1,0 +1,3 @@
+class GameRebootException(Exception):
+
+    pass
