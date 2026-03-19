@@ -1,70 +1,102 @@
 from typing import Optional
 
 import cv2
-import easyocr
-import warnings
 import numpy as np
+from rapidocr import RapidOCR
 from utils.logger import logger
-
-warnings.filterwarnings("ignore", category=UserWarning, module="torch")
 
 
 class Ocr:
     def __init__(self):
-        self.reader = easyocr.Reader(["en", "ch_sim"])
-
-    def _preprocess_image(self, crop_img):
-        """
-        Scale=2, Threshold=120 (Manual), Morph=None
-        """
-        if len(crop_img.shape) == 3:
-            gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = crop_img
-
-        height, width = gray.shape
-        scale_factor = 2
-        resized = cv2.resize(
-            gray,
-            (width * scale_factor, height * scale_factor),
-            interpolation=cv2.INTER_CUBIC,
+        # 默认检测 + 识别
+        self.reader = RapidOCR()
+        # 仅识别模式引擎，避免交叉调用干扰
+        self.rec_only_reader = RapidOCR(
+            params={
+                "Global.use_det": False,
+                "Global.use_cls": False,
+                "Global.use_rec": True,
+            }
         )
 
-        _, binary = cv2.threshold(resized, 120, 255, cv2.THRESH_BINARY)
+    def _run_ocr(
+        self,
+        image: np.ndarray,
+        reader: Optional[RapidOCR] = None,
+        **kwargs,
+    ) -> list[tuple[np.ndarray, str, float]]:
+        """标准化 RapidOCR 输出为 [(bbox, text, score), ...]"""
+        ocr_reader = reader or self.reader
+        result = ocr_reader(image, **kwargs)
+        
+        # 安全判断 result 是否为空（兼容 list/tuple/None）
+        if result is None or (isinstance(result, (list, tuple)) and len(result) == 0):
+            return []
 
+        boxes = getattr(result, "boxes", None)
+        txts = getattr(result, "txts", None)
+        scores = getattr(result, "scores", None)
+
+        if txts is None or scores is None:
+            return []
+
+        # 修复点 1：使用 len() == 0 避免 NumPy 数组的真值歧义报错
+        if boxes is None or len(boxes) == 0:
+            h, w = image.shape[:2]
+            boxes = [np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float32)] * len(txts)
+
+        normalized = []
+        for box, text, score in zip(boxes, txts, scores):
+            if not text:
+                continue
+            try:
+                confidence = float(score)
+            except (TypeError, ValueError):
+                confidence = 0.0
+            
+            normalized.append((np.array(box, dtype=np.float32), str(text), confidence))
+
+        return normalized
+
+    def _preprocess_image(self, crop_img: np.ndarray) -> np.ndarray:
+        """缩放 x2, 阈值 120 (手动), 形态学操作=None"""
+        gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY) if len(crop_img.shape) == 3 else crop_img
+        resized = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        _, binary = cv2.threshold(resized, 120, 255, cv2.THRESH_BINARY)
         return binary
 
     def do_ocr(
         self,
         frame: np.ndarray,
         roi: list[int],
-        whitelist: str,
+        whitelist: str = "",
+        cropped: bool = False,
     ) -> str:
         """执行 OCR 识别"""
-        if frame is None:
-            return ""
-
-        if roi is None or len(roi) != 4:
-            logger.warning(f"OCR ROI 配置无效: {roi}")
+        # 修复点 2：如果 roi 是 numpy array，直接用 not roi 会报错，改回明确判断
+        if frame is None or roi is None or len(roi) != 4:
+            logger.warning(f"帧为空或 OCR ROI 配置无效: {roi}")
             return ""
 
         x1, y1, x2, y2 = roi
         crop = frame[y1:y2, x1:x2]
-        # cv2.imwrite("debug_ocr_crop.png", crop)
         processed_img = self._preprocess_image(crop)
-        # cv2.imwrite("debug_ocr_processed.png", processed_img)
 
         try:
-            results = self.reader.readtext(processed_img)
+            reader = self.rec_only_reader if cropped else self.reader
+            results = self._run_ocr(processed_img, reader=reader)
+            
             clean_res = " ".join([text for _, text, _ in results]).strip()
 
             if whitelist:
-                clean_res = "".join(c for c in clean_res if c in whitelist)
+                whitelist_set = set(whitelist)
+                clean_res = "".join(c for c in clean_res if c in whitelist_set)
 
-            logger.debug(f"EasyOCR识别结果: {clean_res}")
+            logger.debug(f"RapidOCR 识别结果: {clean_res}")
             return clean_res
+            
         except Exception as e:
-            logger.error(f"OCR识别出错: {e}")
+            logger.error(f"OCR 识别出错: {e}")
             return ""
 
     def find_text_and_crop(
@@ -73,61 +105,39 @@ class Ocr:
         target_text: str,
     ) -> Optional[np.ndarray]:
         """在整帧中查找目标文字，返回该文字对应区域的裁剪图。"""
-        if frame is None or frame.size == 0:
+        # 修复点 3：使用 frame.size == 0 更安全
+        if frame is None or frame.size == 0 or not target_text.strip():
+            logger.warning("OCR 目标文字为空或帧无效")
             return None
 
-        if not target_text or not target_text.strip():
-            logger.warning("OCR目标文字为空")
-            return None
-
-        def _norm(text: str) -> str:
-            text = text.strip()
-            return text
-
-        normalized_target = _norm(target_text)
+        target_text = target_text.strip()
 
         try:
-            results = self.reader.readtext(frame)
+            results = self._run_ocr(frame)
         except Exception as e:
-            logger.error(f"OCR定位出错: {e}")
+            logger.error(f"OCR 定位出错: {e}")
             return None
 
-        best_match = None
-        best_confidence = -1.0
+        matches = [
+            (bbox, conf) for bbox, text, conf in results
+            if text and target_text in text.strip()
+        ]
 
-        for bbox, text, confidence in results:
-            normalized_text = _norm(text)
-            if not normalized_text:
-                continue
-
-            try:
-                confidence_value = float(confidence)
-            except (TypeError, ValueError):
-                confidence_value = 0.0
-
-            is_match = normalized_target in normalized_text
-            if not is_match:
-                continue
-
-            if confidence_value > best_confidence:
-                best_confidence = confidence_value
-                best_match = bbox
-
-        if best_match is None:
+        if not matches:
             logger.debug(f"未识别到目标文字: {target_text}")
             return None
 
-        points = np.array(best_match, dtype=np.float32)
-        x_coords = points[:, 0]
-        y_coords = points[:, 1]
+        best_match_bbox, _ = max(matches, key=lambda x: x[1])
 
-        x1 = max(int(np.floor(np.min(x_coords))), 0)
-        y1 = max(int(np.floor(np.min(y_coords))), 0)
-        x2 = min(int(np.ceil(np.max(x_coords))), frame.shape[1])
-        y2 = min(int(np.ceil(np.max(y_coords))), frame.shape[0])
+        x, y, w, h = cv2.boundingRect(np.array(best_match_bbox, dtype=np.float32))
+        
+        x1 = max(x, 0)
+        y1 = max(y, 0)
+        x2 = min(x + w, frame.shape[1])
+        y2 = min(y + h, frame.shape[0])
 
         if x2 <= x1 or y2 <= y1:
-            logger.warning("OCR识别到无效文本区域")
+            logger.warning("OCR 识别到无效文本区域")
             return None
 
         return frame[y1:y2, x1:x2].copy()

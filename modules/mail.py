@@ -9,9 +9,9 @@ class MailHandler:
 
     def handle_mail(self):
         logger.info("【状态】处理邮件与收尾")
-
         self.operator.wait_and_click_target("邮件")
-        time.sleep(3)
+        self.operator.wait_for("部分领取")
+        time.sleep(0.5)
         frame = self.operator.get_frame()
         if frame is None:
             return

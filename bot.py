@@ -171,35 +171,19 @@ def main():
 
     bot.operator.start()
 
-    run_rounds = 80
+    run_rounds = 125
 
     try:
         for round_num in range(1, run_rounds + 1):
             logger.info(f"开始第 {round_num}/{run_rounds} 轮")
             try:
                 bot.run(
-                    target="sheme2",
-                    item_name="箭形弹",
-                    target_price=388,
-                    max_acceptable_price=441,
-                    total_purchase_count=2000,
+                    target="sheme4",
+                    item_name="T46M",
+                    target_price=402,
+                    max_acceptable_price=402,
+                    total_purchase_count=5000,
                 )
-                # bot.run(
-                #     target="sheme3",
-                #     item_name="12 buy",
-                #     inventory_item_name="12 Gauge",
-                #     target_price=288,
-                #     max_acceptable_price=333,
-                #     total_purchase_count=1600,
-                # )
-                # bot.run(
-                #     target="sheme1",
-                #     item_name="919",
-                #     inventory_item_name="9x19 rip",
-                #     target_price=638,
-                #     max_acceptable_price=642,
-                #     total_purchase_count=5000,
-                # )
             except GameRebootException as e:
                 logger.info(f"捕获异常，执行恢复: {e}")
                 recovery = GameRecoveryHandler(bot.operator)

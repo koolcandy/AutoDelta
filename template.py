@@ -8,22 +8,29 @@ import os
 import time
 import json
 import re
+from typing import Any
 import numpy as np
-import easyocr
+from rapidocr import RapidOCR
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage, QPainter, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QPlainTextEdit,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 from core.agent import Agent
-import subprocess
 
 
 class TemplatePicker:
-    """模板选择器，用于框选和保存屏幕区域作为识别模板"""
 
-    def __init__(self, display_width=1920):
-        """
-        初始化模板选择器
-
-        Args:
-            display_width: 预览窗口的最大宽度
-        """
+    def __init__(self):
         # 初始化设备
         self.operator = Agent()
         self.operator.start()
@@ -31,14 +38,21 @@ class TemplatePicker:
         # 状态变量
         self.drawing = False
         self.paused = False
-        self.start_point = None  # 存储预览图上的坐标
-        self.end_point = None  # 存储预览图上的坐标
+        self.start_point = None  # 存储原图坐标
+        self.end_point = None  # 存储原图坐标
 
         self.current_frame = None  # 原始高分辩率帧 (用于保存)
         self.preview = None  # 预览用的低分辻率帧 (缓存用于显示)
-        self.scale_factor = 1.0  # 缩放比例 (原图/预览图)
-        self.display_width = display_width
+        self.scale_factor_x = 1.0  # X 轴缩放比例 (原图/预览图)
+        self.scale_factor_y = 1.0  # Y 轴缩放比例 (原图/预览图)
+        self.preview_offset_x = 0  # 预览图在 QLabel 内的 X 偏移
+        self.preview_offset_y = 0  # 预览图在 QLabel 内的 Y 偏移
+        self.preview_draw_w = 1
+        self.preview_draw_h = 1
         self.ocr_reader = None
+        self.qt_app: Any = None
+        self.status_panel: Any = None
+        self.status_label: Any = None
         self.last_ocr_quad = None  # 最近一次 OCR 命中的四点坐标(原图)
         self.last_ocr_text = ""
         # 创建输出目录
@@ -46,10 +60,45 @@ class TemplatePicker:
             os.makedirs("templates")
 
     def _ensure_ocr_reader(self):
-        """懒加载 EasyOCR，避免启动时初始化过慢"""
+        """懒加载 RapidOCR，避免启动时初始化过慢"""
         if self.ocr_reader is None:
-            print("正在初始化 EasyOCR (首次会稍慢)...")
-            self.ocr_reader = easyocr.Reader(["ch_sim", "en"])
+            self._set_status("正在初始化 RapidOCR（首次会稍慢）")
+            self.ocr_reader = RapidOCR()
+
+    @staticmethod
+    def _rapidocr_entries(result):
+        """将 RapidOCR 返回值转换为 (quad, text, score) 列表。"""
+        if result is None:
+            return []
+
+        boxes = getattr(result, "boxes", None)
+        txts = getattr(result, "txts", None)
+        scores = getattr(result, "scores", None)
+        if boxes is None or txts is None or scores is None:
+            return []
+
+        entries = []
+        for quad, text, score in zip(boxes, txts, scores):
+            if text is None:
+                continue
+
+            try:
+                score_value = float(score)
+            except (TypeError, ValueError):
+                score_value = 0.0
+
+            entries.append((np.array(quad, dtype=np.float32), str(text), score_value))
+
+        return entries
+
+    def _set_status(self, message):
+        """在 Qt 页面内输出状态信息"""
+        if not message:
+            return
+        if self.status_panel is not None:
+            self.status_panel.appendPlainText(message)
+        if self.status_label is not None:
+            self.status_label.setText(message)
 
     @staticmethod
     def _normalize_text(text):
@@ -58,36 +107,31 @@ class TemplatePicker:
             return ""
         return re.sub(r"\s+", "", text).lower()
 
-    def _read_input(self, prompt):
-        """使用 macOS 原生弹窗获取输入，完美避开终端和 Tkinter 冲突"""
-        # 清理 prompt 中可能导致 AppleScript 语法错误的引号
-        safe_prompt = prompt.replace('"', "'")
-        
-        # 编写 AppleScript 调用系统原生输入框
-        apple_script = f'''
-        tell application "System Events"
-            activate
-            set dialog_result to display dialog "{safe_prompt}" default answer "" buttons {{"取消", "确定"}} default button "确定" with title "模板选择器"
-            if button returned of dialog_result is "确定" then
-                return text returned of dialog_result
-            else
+    def _ensure_qt_app(self):
+        """确保存在 Qt 应用实例"""
+        if self.qt_app is None:
+            self.qt_app = QApplication.instance()
+            if self.qt_app is None:
+                self.qt_app = QApplication([])
+                self.qt_app.setQuitOnLastWindowClosed(False)
+        return True
+
+    def _read_input(self, prompt, default_text=""):
+        """使用 Qt 输入框获取输入"""
+        if self._ensure_qt_app():
+            try:
+                text, ok = QInputDialog.getText(
+                    None,
+                    "模板选择器",
+                    prompt,
+                    QLineEdit.EchoMode.Normal,
+                    default_text,
+                )
+                return text.strip() if ok else ""
+            except Exception:
                 return ""
-            end if
-        end tell
-        '''
-        
-        try:
-            # 执行脚本并捕获输出
-            result = subprocess.run(
-                ['osascript', '-e', apple_script],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            return result.stdout.strip()
-        except subprocess.CalledProcessError:
-            # 用户点击了"取消"或按了 ESC 键，osascript 会抛出异常
-            return ""
+        return ""
+
     @staticmethod
     def _order_quad_points(pts):
         """将四点排序为 tl, tr, br, bl，便于透视裁剪"""
@@ -137,17 +181,16 @@ class TemplatePicker:
 
     def _save_template_image_and_coords(self, template, x1, y1, x2, y2, default_name=""):
         """保存模板图片和坐标配置"""
-        print("\n" + "=" * 30)
-        prompt = "请输入模版名称 (直接回车取消): "
+        prompt = "请输入模板名称 (直接回车取消): "
         if default_name:
-            prompt = f"请输入模版名称 (默认: {default_name}, 直接回车使用默认): "
+            prompt = "请输入模板名称 (可直接确认使用默认值): "
 
-        name = self._read_input(prompt)
+        name = self._read_input(prompt, default_text=default_name)
         if not name and default_name:
             name = default_name
 
         if not name:
-            print("已取消保存")
+            self._set_status("已取消保存")
             return
 
         filename = f"templates/{name}.png"
@@ -160,7 +203,7 @@ class TemplatePicker:
                 with open(coords_file, "r", encoding="utf-8") as f:
                     coords_data = json.load(f)
             except Exception as e:
-                print(f"读取坐标文件失败: {e}")
+                self._set_status(f"读取坐标文件失败: {e}")
 
         coords_data[name] = [int(x1), int(y1), int(x2), int(y2)]
 
@@ -168,38 +211,37 @@ class TemplatePicker:
             with open(coords_file, "w", encoding="utf-8") as f:
                 json.dump(coords_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"保存坐标失败: {e}")
+            self._set_status(f"保存坐标失败: {e}")
             return
 
-        print(f"[保存成功] {filename}")
-        print(f"  └─ 坐标: {x1}, {y1}, {x2}, {y2}")
-        print("=" * 30 + "\n")
+        self._set_status(f"保存成功: {filename} | 坐标: {x1}, {y1}, {x2}, {y2}")
 
     def _save_template_by_target_text(self):
-        """输入目标文字，使用 EasyOCR 自动定位后裁剪保存"""
+        """输入目标文字，使用 RapidOCR 自动定位后裁剪保存"""
         if self.current_frame is None:
-            print("当前没有可用画面")
+            self._set_status("当前没有可用画面")
             return
 
         target_text = self._read_input("请输入要查找的目标文字 (直接回车取消): ")
         if not target_text:
-            print("已取消 OCR 查找")
+            self._set_status("已取消 OCR 查找")
             return
 
         self._ensure_ocr_reader()
         reader = self.ocr_reader
         if reader is None:
-            print("EasyOCR 初始化失败")
+            self._set_status("RapidOCR 初始化失败")
             return
 
         try:
-            results = reader.readtext(self.current_frame, detail=1)
+            result = reader(self.current_frame)
+            results = self._rapidocr_entries(result)
         except Exception as e:
-            print(f"OCR 执行失败: {e}")
+            self._set_status(f"OCR 执行失败: {e}")
             return
 
         if not results:
-            print("未识别到任何文字")
+            self._set_status("未识别到任何文字")
             return
 
         target_norm = self._normalize_text(target_text)
@@ -218,13 +260,13 @@ class TemplatePicker:
 
         candidates = exact_matches if exact_matches else contains_matches
         if not candidates:
-            print(f"未找到目标文字: {target_text}")
+            self._set_status(f"未找到目标文字: {target_text}")
             return
 
         best_quad, best_text, best_conf = max(candidates, key=lambda x: x[2])
         template = self._extract_quad_patch(self.current_frame, best_quad)
         if template is None or template.size == 0:
-            print("目标文字裁剪失败")
+            self._set_status("目标文字裁剪失败")
             return
 
         pts = np.array(best_quad, dtype=np.float32)
@@ -238,7 +280,7 @@ class TemplatePicker:
         self.last_ocr_text = best_text
 
         safe_default = re.sub(r"[^0-9a-zA-Z_\u4e00-\u9fff-]+", "_", target_text).strip("_")
-        print(f"命中 OCR 文本: '{best_text}' (置信度: {best_conf:.3f})")
+        self._set_status(f"命中 OCR 文本: '{best_text}' (置信度: {best_conf:.3f})")
         self._save_template_image_and_coords(
             template,
             x1,
@@ -250,33 +292,70 @@ class TemplatePicker:
 
     def get_real_coords(self, x, y):
         """将预览图坐标(x,y) 映射回 原图坐标"""
-        if self.scale_factor == 0:
+        if self.scale_factor_x == 0 or self.scale_factor_y == 0:
             return 0, 0
-        return int(x * self.scale_factor), int(y * self.scale_factor)
+        return int(x * self.scale_factor_x), int(y * self.scale_factor_y)
 
-    def mouse_callback(self, event, x, y, flags, param):
-        """鼠标回调：记录的是预览窗口上的坐标"""
-        if event == cv2.EVENT_LBUTTONDOWN:
-            self.drawing = True
-            self.start_point = (x, y)
+    @staticmethod
+    def _get_qt_mouse_pos(event):
+        """兼容不同 Qt 事件对象的坐标读取"""
+        if hasattr(event, "position"):
+            point = event.position()
+            return int(point.x()), int(point.y())
+        point = event.pos()
+        return int(point.x()), int(point.y())
+
+    def _map_label_to_real_coords(self, x, y):
+        """将 QLabel 坐标映射到原图坐标，自动处理居中偏移与等比例缩放"""
+        if self.current_frame is None:
+            return None
+
+        px = x - self.preview_offset_x
+        py = y - self.preview_offset_y
+        if self.preview_draw_w <= 0 or self.preview_draw_h <= 0:
+            return None
+
+        px = min(max(px, 0), self.preview_draw_w - 1)
+        py = min(max(py, 0), self.preview_draw_h - 1)
+
+        rx, ry = self.get_real_coords(px, py)
+        h, w = self.current_frame.shape[:2]
+        rx = min(max(rx, 0), w - 1)
+        ry = min(max(ry, 0), h - 1)
+        return rx, ry
+
+    def _on_mouse_press(self, x, y):
+        mapped = self._map_label_to_real_coords(x, y)
+        if mapped is None:
+            return
+        x, y = mapped
+        self.drawing = True
+        self.start_point = (x, y)
+        self.end_point = (x, y)
+
+    def _on_mouse_move(self, x, y):
+        mapped = self._map_label_to_real_coords(x, y)
+        if mapped is None:
+            return
+        x, y = mapped
+        if self.drawing:
             self.end_point = (x, y)
 
-        elif event == cv2.EVENT_MOUSEMOVE:
-            if self.drawing:
-                self.end_point = (x, y)
-
-        elif event == cv2.EVENT_LBUTTONUP:
+    def _on_mouse_release(self, x, y):
+        mapped = self._map_label_to_real_coords(x, y)
+        if mapped is None:
             self.drawing = False
-            self.end_point = (x, y)
-            # 自动保存逻辑：如果有拖拽动作
-            if self.start_point and self.end_point:
-                # 计算拖拽距离，防止误触点击
-                dist = (
-                    (self.start_point[0] - self.end_point[0]) ** 2
-                    + (self.start_point[1] - self.end_point[1]) ** 2
-                ) ** 0.5
-                if dist > 5:
-                    self._save_template()
+            return
+        x, y = mapped
+        self.drawing = False
+        self.end_point = (x, y)
+        if self.start_point and self.end_point:
+            dist = (
+                (self.start_point[0] - self.end_point[0]) ** 2
+                + (self.start_point[1] - self.end_point[1]) ** 2
+            ) ** 0.5
+            if dist > 5:
+                self._save_template()
 
     def _save_template(self):
         """根据映射坐标从原图中裁剪"""
@@ -287,69 +366,107 @@ class TemplatePicker:
         ):
             return
 
-        # 1. 获取显示坐标
-        x1_disp, y1_disp = self.start_point
-        x2_disp, y2_disp = self.end_point
+        # 1. 起止点已是原图坐标，直接整理
+        x1, x2 = min(self.start_point[0], self.end_point[0]), max(self.start_point[0], self.end_point[0])
+        y1, y2 = min(self.start_point[1], self.end_point[1]), max(self.start_point[1], self.end_point[1])
 
-        # 2. 映射回原图真实坐标
-        rx1, ry1 = self.get_real_coords(x1_disp, y1_disp)
-        rx2, ry2 = self.get_real_coords(x2_disp, y2_disp)
-
-        # 3. 整理坐标 (min/max)
-        x1, x2 = min(rx1, rx2), max(rx1, rx2)
-        y1, y2 = min(ry1, ry2), max(ry1, ry2)
-
-        # 4. 边界安全检查
+        # 2. 边界安全检查
         h, w = self.current_frame.shape[:2]
         x1, x2 = max(0, x1), min(w, x2)
         y1, y2 = max(0, y1), min(h, y2)
 
-        # 5. 无效区域检查
+        # 3. 无效区域检查
         if x2 <= x1 or y2 <= y1:
-            print("区域无效，未保存")
+            self._set_status("区域无效，未保存")
             return
 
-        # 6. 从原图裁剪
+        # 4. 从原图裁剪
         template = self.current_frame[y1:y2, x1:x2].copy()
 
         self._save_template_image_and_coords(template, x1, y1, x2, y2)
 
     def run(self):
         """启动模板选择器"""
-        window_name = "Template Picker"
-        cv2.namedWindow(window_name, cv2.WINDOW_GUI_NORMAL)
-        cv2.setMouseCallback(window_name, self.mouse_callback)
+        if not self._ensure_qt_app():
+            return
+        picker = self
 
-        print(f"启动模版框选工具... 预览宽度限制: {self.display_width}px")
-        print("操作:")
-        print("  - [F] 键: 冻结/解冻画面 (推荐冻结后框选)")
-        print("  - 鼠标拖拽: 直接保存选区")
-        print("  - [T] 键: 输入目标文字，OCR 自动定位并裁剪保存")
-        print("  - [Q] 键: 退出")
+        class PreviewLabel(QLabel):
+            def __init__(self):
+                super().__init__()
+                self.setMouseTracking(True)
+                self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+            def mousePressEvent(self, event):
+                if event.button() == Qt.MouseButton.LeftButton:
+                    x, y = picker._get_qt_mouse_pos(event)
+                    picker._on_mouse_press(x, y)
+                event.accept()
+
+            def mouseMoveEvent(self, event):
+                x, y = picker._get_qt_mouse_pos(event)
+                picker._on_mouse_move(x, y)
+                event.accept()
+
+            def mouseReleaseEvent(self, event):
+                if event.button() == Qt.MouseButton.LeftButton:
+                    x, y = picker._get_qt_mouse_pos(event)
+                    picker._on_mouse_release(x, y)
+                event.accept()
+
+        window = QWidget()
+        window.setWindowTitle("Template Picker")
+
+        preview_window = PreviewLabel()
+        preview_window.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        preview_window.setMinimumSize(320, 180)
+
+        status_label = QLabel("就绪")
+        status_panel = QPlainTextEdit()
+        status_panel.setReadOnly(True)
+        status_panel.setMaximumHeight(120)
+        self.status_label = status_label
+        self.status_panel = status_panel
+
+        btn_pause = QPushButton("冻结/解冻")
+        btn_ocr = QPushButton("OCR 自动保存")
+
+        def toggle_pause():
+            self.paused = not self.paused
+            self._set_status("已冻结画面" if self.paused else "已恢复实时画面")
+
+        def trigger_ocr():
+            self._save_template_by_target_text()
+
+        btn_pause.clicked.connect(toggle_pause)
+        btn_ocr.clicked.connect(trigger_ocr)
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(btn_pause)
+        btn_row.addWidget(btn_ocr)
+
+        layout = QVBoxLayout(window)
+        layout.addLayout(btn_row)
+        layout.addWidget(preview_window)
+        layout.addWidget(status_label)
+        layout.addWidget(status_panel)
+
+        window.show()
+        window.resize(900, 650)
+        self._set_status("启动成功：鼠标拖拽即可保存选区")
 
         try:
-            while True:
+            while window.isVisible():
                 # 获取/更新帧
                 if not self.paused:
                     frame = self.operator.get_frame()
                     if frame is not None:
                         self.current_frame = frame
-
-                        # 计算缩放比例并生成预览图
-                        h, w = frame.shape[:2]
-                        if w > self.display_width:
-                            self.scale_factor = w / self.display_width
-                            new_h = int(h / self.scale_factor)
-                            self.preview = cv2.resize(
-                                frame,
-                                (self.display_width, new_h),
-                                interpolation=cv2.INTER_NEAREST,
-                            )
-                        else:
-                            self.scale_factor = 1.0
-                            self.preview = frame.copy()
+                        self.preview = frame.copy()
 
                 if self.preview is None:
+                    if self.qt_app is not None:
+                        self.qt_app.processEvents()
                     time.sleep(0.01)
                     continue
 
@@ -366,10 +483,9 @@ class TemplatePicker:
                     cw, ch = abs(self.start_point[0] - self.end_point[0]), abs(
                         self.start_point[1] - self.end_point[1]
                     )
-                    rw, rh = int(cw * self.scale_factor), int(ch * self.scale_factor)
                     cv2.putText(
                         display_img,
-                        f"Real: {rw}x{rh}",
+                        f"Real: {cw}x{ch}",
                         (self.start_point[0], self.start_point[1] - 10),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.6,
@@ -380,10 +496,7 @@ class TemplatePicker:
                 # 显示最近一次 OCR 命中框
                 if self.last_ocr_quad is not None and len(self.last_ocr_quad) == 4:
                     pts = np.array(
-                        [
-                            [int(p[0] / self.scale_factor), int(p[1] / self.scale_factor)]
-                            for p in self.last_ocr_quad
-                        ],
+                        [[int(p[0]), int(p[1])] for p in self.last_ocr_quad],
                         dtype=np.int32,
                     )
                     cv2.polylines(display_img, [pts], True, (0, 200, 255), 2)
@@ -400,25 +513,55 @@ class TemplatePicker:
                             2,
                         )
 
-                cv2.imshow(window_name, display_img)
+                rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+                h, w = rgb_img.shape[:2]
+                bytes_per_line = rgb_img.strides[0]
+                q_image = QImage(
+                    rgb_img.data,
+                    w,
+                    h,
+                    bytes_per_line,
+                    QImage.Format.Format_RGB888,
+                ).copy()
 
-                # 按键处理
-                key = cv2.waitKey(20) & 0xFF
-                if key == ord("q") or key == ord("Q"):
-                    break
-                elif key == ord("f") or key == ord("F"):
-                    self.paused = not self.paused
-                elif key == ord("t") or key == ord("T"):
-                    self._save_template_by_target_text()
+                disp_w = max(1, preview_window.width())
+                disp_h = max(1, preview_window.height())
+
+                scale = min(disp_w / w, disp_h / h)
+                draw_w = max(1, int(w * scale))
+                draw_h = max(1, int(h * scale))
+
+                self.preview_offset_x = (disp_w - draw_w) // 2
+                self.preview_offset_y = (disp_h - draw_h) // 2
+                self.preview_draw_w = draw_w
+                self.preview_draw_h = draw_h
+                self.scale_factor_x = w / draw_w
+                self.scale_factor_y = h / draw_h
+
+                scaled_image = q_image.scaled(
+                    draw_w,
+                    draw_h,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.FastTransformation,
+                )
+                canvas = QPixmap(disp_w, disp_h)
+                canvas.fill(Qt.GlobalColor.black)
+                painter = QPainter(canvas)
+                painter.drawImage(self.preview_offset_x, self.preview_offset_y, scaled_image)
+                painter.end()
+                preview_window.setPixmap(canvas)
+
+                if self.qt_app is not None:
+                    self.qt_app.processEvents()
+                time.sleep(0.02)
 
         except KeyboardInterrupt:
             pass
         finally:
             self.operator.stop()
-            cv2.destroyAllWindows()
-            print("资源已释放")
+            window.close()
 
 
 if __name__ == "__main__":
-    picker = TemplatePicker(display_width=1280)
+    picker = TemplatePicker()
     picker.run()

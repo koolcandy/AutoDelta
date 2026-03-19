@@ -63,7 +63,7 @@ class VisionEngine:
             return (x1 + x2) // 2, (y1 + y2) // 2
         return (0, 0)
 
-    def read_text(self, frame: np.ndarray, target_name: str) -> str:
+    def read_text(self, frame: np.ndarray, target_name: str, cropped: bool) -> str:
         """输入 frame + target_name，输出 OCR 文本。"""
         target = self._ocr_targets.get(target_name)
         if target is None:
@@ -71,4 +71,4 @@ class VisionEngine:
 
         roi = target["roi"]
         whitelist = target["whitelist"]
-        return self.ocr.do_ocr(frame=frame, roi=roi, whitelist=whitelist)
+        return self.ocr.do_ocr(frame=frame, roi=roi, whitelist=whitelist, cropped=cropped)

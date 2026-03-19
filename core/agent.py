@@ -52,14 +52,14 @@ class Agent:
         self.adb.wifi_off()
 
     def read_text(
-        self, target_type: str, frame: Optional[np.ndarray] = None
+        self, target_type: str, cropped: bool = True, frame: Optional[np.ndarray] = None
     ) -> Optional[str]:
         if frame is None:
             frame = self.get_frame()
             if frame is None:
                 return None
 
-        return self.vision.read_text(frame, target_type)
+        return self.vision.read_text(frame, target_type, cropped)
 
     def locate(
         self,
@@ -96,7 +96,7 @@ class Agent:
     def wait_for(self, target: str, timeout: float = 10.0):
         start_time = time.time()
         deadline = start_time + float(timeout)
-        logger.info(f"等待目标: [{target}]，超时时间: {timeout}s")
+        logger.info(f"等待目标: [{target}]")
 
         while time.time() < deadline:
             if self.if_visible(target):
@@ -131,12 +131,12 @@ class Agent:
                     last_click_time = time.time()
                     if not next_tag:
                         return True
-                    logger.info(f"已点击目标: [{target}]，开始验证后续状态: [{next_tag}]")
+                    logger.debug(f"已点击目标: [{target}]，开始验证后续状态: [{next_tag}]")
                     time.sleep(config.STEP_INTERVAL)
                     continue
 
             if clicked and next_tag and self.if_visible(next_tag):
-                logger.info(f"成功找到目标: [{target}]，并验证了后续状态: [{next_tag}]")
+                logger.debug(f"成功找到目标: [{target}]，并验证了后续状态: [{next_tag}]")
                 return True
 
             if (
@@ -147,7 +147,7 @@ class Agent:
             ):
                 retry_click_count += 1
                 last_click_time = time.time()
-                logger.info(
+                logger.debug(
                     f"后续状态未出现，重试点击目标: [{target}]，第{retry_click_count}次补点"
                 )
                 time.sleep(config.STEP_INTERVAL)
