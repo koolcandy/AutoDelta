@@ -101,11 +101,11 @@ class Agent:
         while time.time() < deadline:
             if self.if_visible(target):
                 logger.info(f"成功找到目标: [{target}]")
-                return
+                return True
             time.sleep(config.LOOP_INTERVAL)
 
         logger.warning(f"超时未找到目标: [{target}]")
-        raise GameRebootException(f"超时未找到目标: {target}")
+        return False
     
     def wait_and_click_target(
         self,

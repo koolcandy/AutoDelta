@@ -1,4 +1,3 @@
-from math import e
 import time
 from utils import config
 import re
@@ -174,15 +173,15 @@ class MarketHandler:
                 ):
                     self.target_coord = coord
                     self.operator.click(self.target_coord)
+                else:
+                    continue
             else:
                 self.operator.click(self.target_coord)
 
-            
-            time.sleep(0.2)
-            if self.operator.if_visible("兑换"):
+            if self.operator.wait_for("兑换", timeout=1):
                 return
             
-            time.sleep(0.5)
+            time.sleep(1)
 
         raise GameRebootException(f"无法进入物品详情页: {item_name}")
 
