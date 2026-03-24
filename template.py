@@ -152,7 +152,7 @@ class TemplatePicker:
             return None
 
         rect = self._order_quad_points(pts)
-        (tl, tr, br, bl) = rect
+        tl, tr, br, bl = rect
 
         width_a = np.linalg.norm(br - bl)
         width_b = np.linalg.norm(tr - tl)
@@ -179,7 +179,9 @@ class TemplatePicker:
         warped = cv2.warpPerspective(frame, matrix, (max_width, max_height))
         return warped
 
-    def _save_template_image_and_coords(self, template, x1, y1, x2, y2, default_name=""):
+    def _save_template_image_and_coords(
+        self, template, x1, y1, x2, y2, default_name=""
+    ):
         """保存模板图片和坐标配置"""
         prompt = "请输入模板名称 (直接回车取消): "
         if default_name:
@@ -279,7 +281,9 @@ class TemplatePicker:
         self.last_ocr_quad = self._order_quad_points(pts)
         self.last_ocr_text = best_text
 
-        safe_default = re.sub(r"[^0-9a-zA-Z_\u4e00-\u9fff-]+", "_", target_text).strip("_")
+        safe_default = re.sub(r"[^0-9a-zA-Z_\u4e00-\u9fff-]+", "_", target_text).strip(
+            "_"
+        )
         self._set_status(f"命中 OCR 文本: '{best_text}' (置信度: {best_conf:.3f})")
         self._save_template_image_and_coords(
             template,
@@ -367,8 +371,12 @@ class TemplatePicker:
             return
 
         # 1. 起止点已是原图坐标，直接整理
-        x1, x2 = min(self.start_point[0], self.end_point[0]), max(self.start_point[0], self.end_point[0])
-        y1, y2 = min(self.start_point[1], self.end_point[1]), max(self.start_point[1], self.end_point[1])
+        x1, x2 = min(self.start_point[0], self.end_point[0]), max(
+            self.start_point[0], self.end_point[0]
+        )
+        y1, y2 = min(self.start_point[1], self.end_point[1]), max(
+            self.start_point[1], self.end_point[1]
+        )
 
         # 2. 边界安全检查
         h, w = self.current_frame.shape[:2]
@@ -395,7 +403,9 @@ class TemplatePicker:
             def __init__(self):
                 super().__init__()
                 self.setMouseTracking(True)
-                self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+                self.setAlignment(
+                    Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+                )
 
             def mousePressEvent(self, event):
                 if event.button() == Qt.MouseButton.LeftButton:
@@ -418,7 +428,9 @@ class TemplatePicker:
         window.setWindowTitle("Template Picker")
 
         preview_window = PreviewLabel()
-        preview_window.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        preview_window.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         preview_window.setMinimumSize(320, 180)
 
         status_label = QLabel("就绪")
@@ -547,7 +559,9 @@ class TemplatePicker:
                 canvas = QPixmap(disp_w, disp_h)
                 canvas.fill(Qt.GlobalColor.black)
                 painter = QPainter(canvas)
-                painter.drawImage(self.preview_offset_x, self.preview_offset_y, scaled_image)
+                painter.drawImage(
+                    self.preview_offset_x, self.preview_offset_y, scaled_image
+                )
                 painter.end()
                 preview_window.setPixmap(canvas)
 

@@ -3,6 +3,7 @@ from utils.logger import logger
 import utils.config as config
 from core.agent import Agent
 
+
 class GlitchHandler:
     def __init__(self, operator: Agent):
         self.operator = operator
@@ -23,4 +24,3 @@ class GlitchHandler:
         time.sleep(4)
         self.operator.wait_and_click_target("取消重连")
         self.operator.wait_and_click_target("放弃对局")
-

@@ -15,14 +15,15 @@ class MarketHandler:
         self.current_money = 0
         self.target_coord = None
 
-    def _get_shelves_slot_count(self) -> Optional[int]:
+    def _shelves_slot(self) -> bool:
         clean_res = self.operator.read_text("shelves")
         if clean_res:
             pattern = re.compile(r"(\d+)\s*[\/|]\s*(\d+)")
             match = pattern.search(clean_res)
             if match:
-                return int(match.group(1))
-        return None
+                if int(match.group(1)) == 0:
+                    return True
+        return False
 
     def _get_current_price(self) -> int:
         for _ in range(3):
@@ -31,7 +32,7 @@ class MarketHandler:
                 price = int(clean_res)
                 if price != 0:
                     return price
-            time.sleep(0.1)
+            time.sleep(0.5)
         raise GameRebootException("无法获取当前价格")
 
     def _get_inventory_count(self) -> Tuple[int, int]:
@@ -44,7 +45,7 @@ class MarketHandler:
                     current_val, total_val = int(match.group(1)), int(match.group(2))
                     if total_val != 0 and current_val != 0:
                         return (current_val, total_val)
-            time.sleep(0.1)
+            time.sleep(0.5)
         raise GameRebootException("无法获取库存数量")
 
     def _get_current_money(self) -> int:
@@ -56,7 +57,7 @@ class MarketHandler:
                 final_money = int(clean_res)
                 if final_money != 0:
                     return final_money
-            time.sleep(0.1)
+            time.sleep(0.5)
         return 0
 
     def _get_unit_price(self, count):
@@ -180,7 +181,7 @@ class MarketHandler:
 
             if self.operator.wait_for("兑换", timeout=1):
                 return
-            
+
             time.sleep(1)
 
         raise GameRebootException(f"无法进入物品详情页: {item_name}")
@@ -241,7 +242,7 @@ class MarketHandler:
 
         self.operator.wait_and_click_target("返回")
 
-    def sell_all(self, item_name: str = "9x19 rip"):
+    def sell_all(self, item_name: str = "T46M"):
         """出售所有物品"""
         self.operator.wait_and_click_target("交易行")
 
@@ -253,16 +254,18 @@ class MarketHandler:
             self.operator.wait_for("上架2")
             x1, x2, y = config.slider_end
 
+            time.sleep(3)
             if res := self._get_inventory_count():
                 current_val, total_val = res
                 logger.info(f"物品数量: {current_val}/{total_val}")
                 if total_val == 0:
                     return
+                time.sleep(1)
                 x = int(x1 + (x2 - x1) * min((3000 / total_val), 1))
                 logger.debug(f"滑动到位置: ({x}, {y})")
                 self.operator.click((x, y))
 
-            time.sleep(0.2)
+            time.sleep(1)
 
             if res := self._get_inventory_count():
                 current_val, total_val = res
@@ -281,5 +284,9 @@ class MarketHandler:
                 time.sleep(0.2)
 
             self.operator.wait_and_click_target("上架2")
+
+            time.sleep(3)
+            while not self._shelves_slot():
+                time.sleep(1)
 
         self.operator.wait_and_click_target("返回")

@@ -29,7 +29,7 @@ class MailHandler:
         self.operator.wait_and_click_target("返回", solve_popup=True)
 
         return True
-    
+
     def recept_mail(self):
         logger.info("【状态】接取邮件")
 

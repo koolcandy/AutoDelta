@@ -122,11 +122,11 @@ class Matcher:
             return None
 
     def find_template_anywhere(
-        self, frame: np.ndarray, target: str|np.ndarray
+        self, frame: np.ndarray, target: str | np.ndarray
     ) -> Optional[tuple[int, int]]:
         threshold = 0.02
         if isinstance(target, str):
-            traget_template =  self._get_template(target)
+            traget_template = self._get_template(target)
         elif isinstance(target, np.ndarray):
             traget_template = target
         else:

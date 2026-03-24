@@ -26,6 +26,7 @@ class _BotServices:
     prepare: PrepareHandler
     reconnect: ReconnectHandler
 
+
 def _build_services() -> _BotServices:
     operator = Agent()
 
@@ -60,7 +61,8 @@ class Bot:
 
     def detect_state(self) -> GameState:
         """根据屏幕特征判断当前处于哪个阶段"""
-        self.operator.popup_handler()
+        if self.operator.popup_handler():
+            time.sleep(1)
 
         frame = self.operator.get_frame()
         if frame is None:
@@ -77,14 +79,14 @@ class Bot:
         if self.operator.locate("装备配置", frame=frame):
             logger.info("检测到配装界面")
             return GameState.PREPARE
-        
+
         if self.operator.locate("推荐配装", frame=frame):
             logger.info("检测到准备界面 ")
             return GameState.GLITCH
-            
+
         if self.operator.locate("行前备战", frame=frame):
             return GameState.LOBBY
-        
+
         if self.operator.locate("出发", frame=frame):
             return GameState.LOBBY_GO
 
@@ -135,7 +137,7 @@ class Bot:
                 self.glitch.handle_glitch(target)
                 self.glitch_state = False
                 self.handle_mail = True
-            
+
             elif current_state == GameState.RECONNECT:
                 self.reconnect.handle_reconnect()
 
@@ -149,19 +151,13 @@ class Bot:
 
             time.sleep(1)
 
-    def test(self):
-        """测试函数"""
-        logger.info("正在测试状态检测...")
-        self.operator.popup_handler()
-
     def sell(self):
-        for _ in range(15):
+        for _ in range(100):
             self.mail.recept_mail()
             self.market.sell_all()
-            time.sleep(5)
 
 
-def main():
+def main(action):
     """主函数"""
     logger.info("AutoDelta 启动中...")
 
@@ -171,25 +167,27 @@ def main():
 
     bot.operator.start()
 
-    run_rounds = 125
+    run_rounds = 150
 
     try:
-        for round_num in range(1, run_rounds + 1):
-            logger.info(f"开始第 {round_num}/{run_rounds} 轮")
-            try:
-                bot.run(
-                    target="sheme4",
-                    item_name="T46M",
-                    target_price=402,
-                    max_acceptable_price=402,
-                    total_purchase_count=5000,
-                )
-            except GameRebootException as e:
-                logger.info(f"捕获异常，执行恢复: {e}")
-                recovery = GameRecoveryHandler(bot.operator)
-                recovery.recover_from_failure()
-                continue
-        # bot.sell()
+        if action == "buy":
+            for round_num in range(1, run_rounds + 1):
+                logger.info(f"开始第 {round_num}/{run_rounds} 轮")
+                try:
+                    bot.run(
+                        target="sheme2",
+                        item_name="箭",
+                        target_price=400,
+                        max_acceptable_price=480,
+                        total_purchase_count=2000,
+                    )
+                except GameRebootException as e:
+                    logger.info(f"捕获异常，执行恢复: {e}")
+                    recovery = GameRecoveryHandler(bot.operator)
+                    recovery.recover_from_failure()
+                    continue
+        elif action == "sell":
+            bot.sell()
     except KeyboardInterrupt:
         logger.info("用户手动停止")
     finally:
@@ -200,4 +198,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main("buy")

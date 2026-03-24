@@ -54,6 +54,7 @@ class Agent:
     def read_text(
         self, target_type: str, cropped: bool = True, frame: Optional[np.ndarray] = None
     ) -> Optional[str]:
+        # TODO 移除这里的cropped
         if frame is None:
             frame = self.get_frame()
             if frame is None:
@@ -66,7 +67,7 @@ class Agent:
         target_name: str,
         frame: Optional[np.ndarray] = None,
         ocr: bool = False,
-        template_type: Optional[Literal["warehouse", "marketplace"]] = None
+        template_type: Optional[Literal["warehouse", "marketplace"]] = None,
     ) -> Optional[tuple[int, int]]:
         if frame is None:
             frame = self.get_frame()
@@ -106,7 +107,7 @@ class Agent:
 
         logger.warning(f"超时未找到目标: [{target}]")
         return False
-    
+
     def wait_and_click_target(
         self,
         target: str,
@@ -131,18 +132,22 @@ class Agent:
                     last_click_time = time.time()
                     if not next_tag:
                         return True
-                    logger.debug(f"已点击目标: [{target}]，开始验证后续状态: [{next_tag}]")
+                    logger.debug(
+                        f"已点击目标: [{target}]，开始验证后续状态: [{next_tag}]"
+                    )
                     time.sleep(config.STEP_INTERVAL)
                     continue
 
             if clicked and next_tag and self.if_visible(next_tag):
-                logger.debug(f"成功找到目标: [{target}]，并验证了后续状态: [{next_tag}]")
+                logger.debug(
+                    f"成功找到目标: [{target}]，并验证了后续状态: [{next_tag}]"
+                )
                 return True
 
             if (
                 clicked
                 and next_tag
-                and time.time() - last_click_time >= config.STEP_INTERVAL*2
+                and time.time() - last_click_time >= config.STEP_INTERVAL * 2
                 and self.if_visible(target, do_click=True)
             ):
                 retry_click_count += 1

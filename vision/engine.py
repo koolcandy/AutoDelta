@@ -8,9 +8,11 @@ class OcrTarget(TypedDict):
     roi: list[int]
     whitelist: str
 
+
 class TemplateCache(TypedDict, total=False):
     warehouse: np.ndarray
     marketplace: np.ndarray
+
 
 class VisionEngine:
     """视觉引擎"""
@@ -71,4 +73,6 @@ class VisionEngine:
 
         roi = target["roi"]
         whitelist = target["whitelist"]
-        return self.ocr.do_ocr(frame=frame, roi=roi, whitelist=whitelist, cropped=cropped)
+        return self.ocr.do_ocr(
+            frame=frame, roi=roi, whitelist=whitelist, cropped=cropped
+        )
